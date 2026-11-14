@@ -10,6 +10,15 @@ base {
     archivesName = project.archives_base_name
 }
 
+sourceSets {
+    main {
+        java {
+            srcDirs = ['.']
+            include '*.java'
+        }
+    }
+}
+
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
     implementation "net.fabricmc:fabric-loader:${project.loader_version}"
@@ -17,9 +26,14 @@ dependencies {
 }
 
 processResources {
-    inputs.property "version", project.version
-    filesMatching("fabric.mod.json") {
-        expand "version": inputs.properties.version
+    from('fabric.mod.json') {
+        expand 'version': project.version
+    }
+    from('en_us.json') {
+        into 'assets/dragonriding/lang'
+    }
+    from('rideable_dragon.png') {
+        into 'assets/dragonriding/textures/entity'
     }
 }
 
@@ -28,7 +42,6 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 java {
-    withSourcesJar()
     sourceCompatibility = JavaVersion.VERSION_25
     targetCompatibility = JavaVersion.VERSION_25
 }
