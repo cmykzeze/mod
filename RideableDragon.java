@@ -243,8 +243,8 @@ public class RideableDragon extends TamableAnimal {
         if (isSaddled() && !this.isVehicle()) {
             if (getStage() == 0) {
                 if (!client) {
-                    player.displayClientMessage(
-                            Component.literal("This dragon is still a baby. Feed it fish to help it grow!"), true);
+                    player.sendSystemMessage(
+                            Component.literal("This dragon is still a baby. Feed it fish to help it grow!"));
                 }
                 return InteractionResult.SUCCESS;
             }

@@ -27,7 +27,7 @@ public class DragonRidingClient implements ClientModInitializer {
                 return;
             }
             if (player.getVehicle() instanceof RideableDragon dragon && dragon.getControllingPassenger() == player) {
-                boolean fire = client.screen == null && client.options.keyAttack.isDown();
+                boolean fire = client.options.keyAttack.isDown();
                 boolean boost = client.options.keySprint.isDown();
                 boolean up = client.options.keyJump.isDown();
                 dragon.setRiderInput(fire, boost, up);
