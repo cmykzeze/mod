@@ -11,12 +11,18 @@ public class DragonRenderer extends MobRenderer<RideableDragon, DragonRenderStat
             Identifier.fromNamespaceAndPath(DragonRiding.MOD_ID, "textures/entity/rideable_dragon.png");
 
     public DragonRenderer(EntityRendererProvider.Context context) {
-        super(context, new DragonModel(context.bakeLayer(DragonModel.LAYER)), 1.2F);
+        super(context, new DragonModel(context.bakeLayer(DragonModel.LAYER)), 1.6F);
     }
 
     @Override
     public DragonRenderState createRenderState() {
         return new DragonRenderState();
+    }
+
+    @Override
+    public void extractRenderState(RideableDragon entity, DragonRenderState state, float partialTick) {
+        super.extractRenderState(entity, state, partialTick);
+        state.breathing = entity.isBreathing();
     }
 
     @Override
