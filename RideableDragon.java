@@ -11,10 +11,10 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.DifficultyInstance;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.damagesource.DamageTypes;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
-import net.minecraft.world.effect.MobEffectInstance;
-import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.AgeableMob;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntitySpawnReason;
@@ -27,12 +27,10 @@ import net.minecraft.world.entity.TamableAnimal;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
-import net.minecraft.world.entity.ai.control.FlyingMoveControl;
 import net.minecraft.world.entity.ai.goal.FollowOwnerGoal;
 import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal;
-import net.minecraft.world.entity.ai.goal.WaterAvoidingRandomFlyingGoal;
-import net.minecraft.world.entity.ai.navigation.FlyingPathNavigation;
-import net.minecraft.world.entity.ai.navigation.PathNavigation;
+import net.minecraft.world.entity.ai.goal.FloatGoal;
+import net.minecraft.world.entity.ai.goal.WaterAvoidingRandomStrollGoal;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -50,9 +48,12 @@ import java.util.List;
  *
  * Growth:  baby (can't be ridden) -> young (ridable, short flames) -> adult (fast, long flames).
  *          Time passes on its own; feeding fish to a tamed dragon speeds it up.
- * Riding:  mouse = steer (flies where you look), W/S forward/brake, A/D strafe,
- *          Jump = rise, Sprint = boost (uses energy), look steeply down = dive (extra speed),
- *          Attack (left-click, held) = fire breath.
+ * Ground:  walks (gravity on). Riding on the ground = W/A/S/D walk, mouse turns.
+ * Flying:  press Jump to take off. In the air the mouse steers (flies where you look),
+ *          W/S forward/brake, A/D strafe, Jump = rise, Sprint = boost (uses energy),
+ *          look steeply down = dive. Touch the ground (without holding Jump) = walk again.
+ * Fire:    Attack (left-click, held).
+ * The dragon itself takes no fall damage.
  */
 public class RideableDragon extends TamableAnimal {
     private static final EntityDataAccessor<Boolean> SADDLED =
@@ -73,11 +74,10 @@ public class RideableDragon extends TamableAnimal {
     // controls from the rider (set from the client, and from a network packet on the server)
     private boolean riderFire, riderBoost, riderUp;
     private float boostEnergy = MAX_BOOST;
+    private boolean airborne = false;   // client-side flight state while ridden
 
     public RideableDragon(EntityType<? extends RideableDragon> type, Level level) {
         super(type, level);
-        this.moveControl = new FlyingMoveControl(this, 20, true);
-        this.setNoGravity(true);
     }
 
     public static AttributeSupplier.Builder createAttributes() {
@@ -86,22 +86,25 @@ public class RideableDragon extends TamableAnimal {
                 .add(Attributes.MOVEMENT_SPEED, 0.3)
                 .add(Attributes.FLYING_SPEED, 0.9)
                 .add(Attributes.ATTACK_DAMAGE, 6.0)
+                .add(Attributes.STEP_HEIGHT, 1.1)
                 .add(Attributes.FOLLOW_RANGE, 32.0);
     }
 
     @Override
     protected void registerGoals() {
-        this.goalSelector.addGoal(2, new FollowOwnerGoal(this, 1.2, 10.0F, 3.0F));
-        this.goalSelector.addGoal(3, new WaterAvoidingRandomFlyingGoal(this, 1.0));
+        this.goalSelector.addGoal(1, new FloatGoal(this));
+        this.goalSelector.addGoal(2, new FollowOwnerGoal(this, 1.1, 10.0F, 3.0F));
+        this.goalSelector.addGoal(3, new WaterAvoidingRandomStrollGoal(this, 0.8));
         this.goalSelector.addGoal(4, new RandomLookAroundGoal(this));
     }
 
+    /** The dragon never takes fall damage. */
     @Override
-    protected PathNavigation createNavigation(Level level) {
-        FlyingPathNavigation nav = new FlyingPathNavigation(this, level);
-        nav.setCanOpenDoors(false);
-        nav.setCanFloat(true);
-        return nav;
+    public boolean hurtServer(ServerLevel level, DamageSource source, float amount) {
+        if (source.is(DamageTypes.FALL)) {
+            return false;
+        }
+        return super.hurtServer(level, source, amount);
     }
 
     // ---------------------------------------------------------------- data
@@ -271,10 +274,7 @@ public class RideableDragon extends TamableAnimal {
         this.riderFire = false;
         this.riderBoost = false;
         this.riderUp = false;
-        if (passenger instanceof Player player && !this.level().isClientSide()) {
-            player.resetFallDistance();
-            player.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, 200, 0));
-        }
+        this.airborne = false;
     }
 
     // ---------------------------------------------------------------- rider controls
@@ -289,59 +289,105 @@ public class RideableDragon extends TamableAnimal {
         return getStage() >= 2 ? 0.8 : 0.6;   // blocks per tick
     }
 
+    private double walkSpeed() {
+        return getStage() >= 2 ? 0.26 : 0.2;   // blocks per tick
+    }
+
     @Override
     public void travel(Vec3 travelVector) {
         if (this.getControllingPassenger() instanceof Player rider) {
-            // face where the rider looks
+            // body always faces where the rider looks (left/right)
             this.setYRot(rider.getYRot());
             this.yRotO = this.getYRot();
-            this.setXRot(rider.getXRot() * 0.5F);
-            this.setRot(this.getYRot(), this.getXRot());
             this.yBodyRot = this.getYRot();
             this.yHeadRot = this.getYRot();
 
-            double base = cruiseSpeed();
-            double mult = 1.0;
-
-            // boost (uses energy, refills when not boosting)
-            boolean boosting = false;
-            if (riderBoost && boostEnergy > 0.0F) {
-                boosting = true;
-                boostEnergy -= 1.5F;
-                mult *= 1.6;
-            } else if (boostEnergy < MAX_BOOST) {
-                boostEnergy = Math.min(MAX_BOOST, boostEnergy + 0.6F);
-            }
-
-            // dive: looking steeply downward adds speed; climbing steeply costs a little
-            float pitch = rider.getXRot();   // + = looking down
-            if (pitch > 30.0F) {
-                mult *= 1.0 + Math.min(1.0, (pitch - 30.0F) / 45.0F) * 0.6;
-            } else if (pitch < -30.0F) {
-                mult *= 0.85;
-            }
-
-            float yawRad = rider.getYRot() * Mth.DEG_TO_RAD;
-            Vec3 look = rider.getLookAngle();
-            Vec3 left = new Vec3(Mth.cos(yawRad), 0.0, Mth.sin(yawRad));
-
-            Vec3 desired = look.scale(rider.zza * base * mult)
-                    .add(left.scale(rider.xxa * base * 0.5));
-            if (riderUp) {
-                desired = desired.add(0.0, base * 0.5, 0.0);
-            }
-
-            double response = boosting ? 0.2 : 0.12;
             Vec3 vel = this.getDeltaMovement();
-            this.setDeltaMovement(vel.scale(1.0 - response).add(desired.scale(response)));
-            this.move(MoverType.SELF, this.getDeltaMovement());
 
-            this.resetFallDistance();
-            rider.resetFallDistance();
+            // take off with Jump; land (and walk) as soon as we touch the ground
+            if (this.onGround() && riderUp) {
+                this.airborne = true;
+                vel = new Vec3(vel.x, 0.6, vel.z);
+            } else if (this.onGround() && !riderUp) {
+                this.airborne = false;
+            }
+
+            if (this.airborne) {
+                flyRidden(rider, vel);
+            } else {
+                walkRidden(rider, vel);
+            }
             this.calculateEntityAnimation(false);
         } else {
             super.travel(travelVector);
         }
+    }
+
+    private void walkRidden(Player rider, Vec3 vel) {
+        this.setXRot(0.0F);
+        this.setRot(this.getYRot(), 0.0F);
+
+        double speed = walkSpeed() * (riderBoost ? 1.4 : 1.0);
+        float yawRad = rider.getYRot() * Mth.DEG_TO_RAD;
+        Vec3 forward = new Vec3(-Mth.sin(yawRad), 0.0, Mth.cos(yawRad));
+        Vec3 left = new Vec3(Mth.cos(yawRad), 0.0, Mth.sin(yawRad));
+        Vec3 wish = forward.scale(rider.zza * speed).add(left.scale(rider.xxa * speed * 0.8));
+
+        double vx = vel.x + (wish.x - vel.x) * 0.3;
+        double vz = vel.z + (wish.z - vel.z) * 0.3;
+        double vy = (vel.y - 0.08) * 0.98;   // gravity
+
+        this.setDeltaMovement(vx, vy, vz);
+        this.move(MoverType.SELF, this.getDeltaMovement());
+        if (this.onGround()) {
+            Vec3 v = this.getDeltaMovement();
+            this.setDeltaMovement(v.x, 0.0, v.z);
+        }
+        if (boostEnergy < MAX_BOOST) {
+            boostEnergy = Math.min(MAX_BOOST, boostEnergy + 0.6F);
+        }
+        this.resetFallDistance();
+    }
+
+    private void flyRidden(Player rider, Vec3 vel) {
+        this.setXRot(rider.getXRot() * 0.5F);
+        this.setRot(this.getYRot(), this.getXRot());
+
+        double base = cruiseSpeed();
+        double mult = 1.0;
+
+        // boost (uses energy, refills when not boosting)
+        boolean boosting = false;
+        if (riderBoost && boostEnergy > 0.0F) {
+            boosting = true;
+            boostEnergy -= 1.5F;
+            mult *= 1.6;
+        } else if (boostEnergy < MAX_BOOST) {
+            boostEnergy = Math.min(MAX_BOOST, boostEnergy + 0.6F);
+        }
+
+        // dive: looking steeply downward adds speed; climbing steeply costs a little
+        float pitch = rider.getXRot();   // + = looking down
+        if (pitch > 30.0F) {
+            mult *= 1.0 + Math.min(1.0, (pitch - 30.0F) / 45.0F) * 0.6;
+        } else if (pitch < -30.0F) {
+            mult *= 0.85;
+        }
+
+        float yawRad = rider.getYRot() * Mth.DEG_TO_RAD;
+        Vec3 look = rider.getLookAngle();
+        Vec3 left = new Vec3(Mth.cos(yawRad), 0.0, Mth.sin(yawRad));
+
+        Vec3 desired = look.scale(rider.zza * base * mult)
+                .add(left.scale(rider.xxa * base * 0.5));
+        if (riderUp) {
+            desired = desired.add(0.0, base * 0.5, 0.0);
+        }
+
+        double response = boosting ? 0.2 : 0.12;
+        this.setDeltaMovement(vel.scale(1.0 - response).add(desired.scale(response)));
+        this.move(MoverType.SELF, this.getDeltaMovement());
+        this.resetFallDistance();
     }
 
     // ---------------------------------------------------------------- server tick: growth + fire

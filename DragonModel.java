@@ -30,6 +30,10 @@ public class DragonModel extends EntityModel<DragonRenderState> {
     private final ModelPart wing2_l;
     private final ModelPart wing_r;
     private final ModelPart wing2_r;
+    private final ModelPart fthigh_l;
+    private final ModelPart fthigh_r;
+    private final ModelPart hthigh_l;
+    private final ModelPart hthigh_r;
 
     public DragonModel(ModelPart root) {
         super(root);
@@ -46,6 +50,10 @@ public class DragonModel extends EntityModel<DragonRenderState> {
         this.wing2_l = root.getChild("wing_l").getChild("wing2_l");
         this.wing_r = root.getChild("wing_r");
         this.wing2_r = root.getChild("wing_r").getChild("wing2_r");
+        this.fthigh_l = root.getChild("fthigh_l");
+        this.fthigh_r = root.getChild("fthigh_r");
+        this.hthigh_l = root.getChild("hthigh_l");
+        this.hthigh_r = root.getChild("hthigh_r");
     }
 
     public static LayerDefinition createBodyLayer() {
@@ -301,12 +309,37 @@ public class DragonModel extends EntityModel<DragonRenderState> {
         super.setupAnim(state);
         float t = state.ageInTicks;
 
-        // wings: shoulder flap + lagging forearm
-        float flap = Mth.sin(t * 0.33F) * 0.55F;
-        this.wing_l.zRot = 0.2F + flap;
-        this.wing_r.zRot = -(0.2F + flap);
-        this.wing2_l.zRot = flap * 0.55F;
-        this.wing2_r.zRot = -flap * 0.55F;
+        if (state.flying) {
+            // wings: shoulder flap + lagging forearm; legs tucked
+            float flap = Mth.sin(t * 0.33F) * 0.55F;
+            this.wing_l.zRot = 0.2F + flap;
+            this.wing_r.zRot = -(0.2F + flap);
+            this.wing_l.yRot = 0.0F;
+            this.wing_r.yRot = 0.0F;
+            this.wing2_l.zRot = flap * 0.55F;
+            this.wing2_r.zRot = -flap * 0.55F;
+            this.wing2_l.yRot = 0.0F;
+            this.wing2_r.yRot = 0.0F;
+            this.fthigh_l.xRot = -0.3F;
+            this.fthigh_r.xRot = -0.3F;
+            this.hthigh_l.xRot = 0.2F;
+            this.hthigh_r.xRot = 0.2F;
+        } else {
+            // on the ground: wings folded back along the body, legs walk
+            this.wing_l.zRot = 0.35F;
+            this.wing_r.zRot = -0.35F;
+            this.wing_l.yRot = 1.2F;
+            this.wing_r.yRot = -1.2F;
+            this.wing2_l.zRot = 0.0F;
+            this.wing2_r.zRot = 0.0F;
+            this.wing2_l.yRot = 0.9F;
+            this.wing2_r.yRot = -0.9F;
+            float swing = Mth.cos(state.walkAnimationPos * 0.6662F) * 1.1F * state.walkAnimationSpeed;
+            this.fthigh_l.xRot = -0.3F + swing;
+            this.fthigh_r.xRot = -0.3F - swing;
+            this.hthigh_l.xRot = 0.2F - swing;
+            this.hthigh_r.xRot = 0.2F + swing;
+        }
 
         // neck + head follow where the dragon looks, with a gentle S-sway
         float headPitch = Mth.clamp(state.xRot, -40.0F, 40.0F) * Mth.DEG_TO_RAD * 0.6F;

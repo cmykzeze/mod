@@ -23,6 +23,7 @@ public class DragonRenderer extends MobRenderer<RideableDragon, DragonRenderStat
     public void extractRenderState(RideableDragon entity, DragonRenderState state, float partialTick) {
         super.extractRenderState(entity, state, partialTick);
         state.breathing = entity.isBreathing();
+        state.flying = !entity.onGround() && !entity.isInWater();
     }
 
     @Override
