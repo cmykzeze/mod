@@ -19,7 +19,7 @@ import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.control.FlyingMoveControl;
 import net.minecraft.world.entity.ai.goal.FollowOwnerGoal;
 import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal;
-import net.minecraft.world.entity.ai.goal.SitWhenOrderedToSitGoal;
+
 import net.minecraft.world.entity.ai.goal.WaterAvoidingRandomFlyingGoal;
 import net.minecraft.world.entity.ai.navigation.FlyingPathNavigation;
 import net.minecraft.world.entity.ai.navigation.PathNavigation;
@@ -59,7 +59,7 @@ public class RideableDragon extends TamableAnimal {
 
     @Override
     protected void registerGoals() {
-        this.goalSelector.addGoal(1, new SitWhenOrderedToSitGoal(this));
+        
         this.goalSelector.addGoal(2, new FollowOwnerGoal(this, 1.2, 10.0F, 3.0F));
         this.goalSelector.addGoal(3, new WaterAvoidingRandomFlyingGoal(this, 1.0));
         this.goalSelector.addGoal(4, new RandomLookAroundGoal(this));
