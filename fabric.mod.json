@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "dragonriding",
+  "version": "${version}",
+  "name": "Dragon Riding",
+  "description": "Tame, saddle and fly a dragon.",
+  "authors": ["You"],
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["com.dragonriding.DragonRiding"],
+    "client": ["com.dragonriding.client.DragonRidingClient"]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "minecraft": "~26.3",
+    "java": ">=25",
+    "fabric-api": "*"
+  }
+}
